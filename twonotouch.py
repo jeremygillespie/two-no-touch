@@ -1,7 +1,7 @@
 import random
 import numpy as np
 
-size = 10
+size = 8
 
 
 def output(graph, zones):
@@ -97,11 +97,14 @@ def adjacent_zones(p, zones):
 
 def target_zones(count, accessible):
     valid = count < 2
+    if not valid.any():
+        return np.array([])
     valid = accessible == min(accessible[valid])
     return np.array(range(size))[valid]
 
 
 def update_accessible(graph, zones, accessible, center):
+    result = np.full((size), 0, dtype=np.int32)
     for z in range(size):
         can_visit = np.full((size, size), True, dtype=np.bool)
         q = []
@@ -118,7 +121,8 @@ def update_accessible(graph, zones, accessible, center):
                 if can_visit[p1] and (zones[p1] == -1 or zones[p1] == z):
                     q.append(p1)
 
-        accessible[z] = found
+        result[z] = found
+    return result
 
 
 def fill_zones(graph):
@@ -145,29 +149,85 @@ def fill_zones(graph):
         else:
             points_empty.append(p)
 
-    loop_count = 0
-    while len(points_empty) > 0 and loop_count <= 2 * len(points_empty):
-        p = points_empty.pop(0)
+    target_zone = random.choice(target_zones(zone_count, zone_accessible))
 
-        target_zone = random.choice(target_zones(zone_count, zone_accessible))
-        print(target_zone)
+    loop_count = 0
+    while len(points_empty) > 0:
+        p = points_empty.pop(0)
 
         if target_zone in adjacent_zones(p, result):
             result[p] = target_zone
-            update_accessible(graph, result, zone_accessible, zone_center)
-            loop_count = 0
+            acc_new = update_accessible(
+                graph, result, zone_accessible, zone_center)
+            if min(acc_new) >= 2:
+                if graph[p]:
+                    zone_count[target_zone] += 1
+                tz = target_zones(zone_count, zone_accessible)
+                if len(tz) == 0:
+                    break
+                target_zone = random.choice(tz)
+                zone_accessible = acc_new
+                loop_count = 0
+            else:
+                result[p] = -1
+                points_empty.append(p)
+                loop_count += 1
         else:
             points_empty.append(p)
             loop_count += 1
 
+        if loop_count > len(points_empty):
+            return np.array([])
+
+    while len(points_empty) > 0:
+        p = points_empty.pop(0)
+
+        adj = adjacent_zones(p, result)
+        if len(adj) > 0:
+            result[p] = random.choice(adj)
+        else:
+            points_empty.append(p)
+
     return result
 
 
-graph = np.full((size, size), 0, dtype=np.bool)
-zones = np.full((size, size), -1, dtype=np.int8)
+def solve(zones, x, graph):
+    if x == size:
+        zone_count = np.full((size), 0, dtype=np.int8)
+        for xpos in range(size):
+            for ypos in range(size):
+                if graph[xpos, ypos]:
+                    zone_count[zones[xpos, ypos]] += 1
+        if np.all(zone_count == 2):
+            output(graph, zones)
+            return 1
+        else:
+            return 0
 
-graph = fill(0, graph)
-output(graph, zones)
+    rows = valid_rows(x, graph)
+    result = 0
 
-zones = fill_zones(graph)
+    for a in rows:
+        for b in rows:
+            if a > b and a - b > 1:
+
+                graph_new = np.copy(graph)
+                graph_new[x, a] = True
+                graph_new[x, b] = True
+
+                result += solve(zones, x+1, graph_new)
+
+    return result
+
+
+zones = np.array([])
+while len(zones) == 0:
+    graph = np.full((size, size), 0, dtype=np.bool)
+    graph = fill(0, graph)
+    for i in range(100):
+        zones = fill_zones(graph)
+        if len(zones) != 0:
+            break
+
 output(graph, zones)
+print(solve(zones, 0, np.full((size, size), 0, dtype=np.bool)))
