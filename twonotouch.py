@@ -20,23 +20,28 @@ class Graph:
 
         self.dots = np.full((self.size, self.size), False, dtype=np.bool)
         self.zones = np.full((self.size, self.size), -1, dtype=np.int8)
+        self.num_solutions = 0
 
-    def num_solutions(self):
+    def one_solution(self):
         dots = np.full((self.size, self.size), False, dtype=np.bool)
-        return self.recurse_solutions(dots, 0)
+        zone_count = np.full((self.size), 0, dtype=np.int)
+        self.recurse_one_solution(dots, 0, zone_count)
+        return self.num_solutions == 1
 
-    def recurse_solutions(self, dots, x):
+    def recurse_one_solution(self, dots, x, zone_count):
+        if np.any(zone_count == 3):
+            return
+
+        if np.all(zone_count == 2):
+            self.num_solutions += 1
+            return
+
         if x == self.size:
-            if self.zones_full(dots):
-                return 1
-            else:
-                return 0
+            return
 
         v = self.valid_rows(dots, x)
         if len(v) < 2:
-            return 0
-
-        result = 0
+            return
 
         for y1 in range(self.size):
             for y2 in range(self.size):
@@ -45,9 +50,13 @@ class Graph:
                     new_dots[x, y1] = True
                     new_dots[x, y2] = True
 
-                    result += self.recurse_solutions(new_dots, x + 1)
+                    new_zc = zone_count.copy()
+                    new_zc[self.zones[x, y1]] += 1
+                    new_zc[self.zones[x, y2]] += 1
 
-        return result
+                    self.recurse_one_solution(new_dots, x + 1, new_zc)
+                    if self.num_solutions > 1:
+                        return
 
     def zones_full(self, dots):
         for n in range(self.size):
@@ -110,7 +119,7 @@ class Graph:
         return None
 
     def isolated_dot(self, zones, assigned):
-        for d in np.arange(self.num_dots):
+        for d in range(self.num_dots):
             if not assigned[d]:
                 q = deque()
                 q.append(self.dot_loc[d])
@@ -172,10 +181,10 @@ class Graph:
 
         v = self.valid_rows(dots, x)
 
-        r1 = np.arange(self.size)
-        r2 = np.arange(self.size)
-        np.random.shuffle(r1)
-        np.random.shuffle(r2)
+        r1 = list(range(self.size))
+        r2 = list(range(self.size))
+        random.shuffle(r1)
+        random.shuffle(r2)
 
         for y1 in r1:
             for y2 in r2:
