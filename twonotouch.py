@@ -19,60 +19,8 @@ class Graph:
         self.num_dots = self.size * 2
 
         self.dots = np.full((self.size, self.size), False, dtype=np.bool)
-        self.zones = np.full((self.size, self.size), -1, dtype=np.int8)
-
-    def one_solution(self):
-        self.num_solutions = 0
-        dots = np.full((self.size, self.size), False, dtype=np.bool)
-        zone_count = np.full((self.size), 0, dtype=np.int)
-        self.recurse_one_solution(dots, 0, zone_count)
-        return self.num_solutions == 1
-
-    def recurse_one_solution(self, dots, x, zone_count):
-        if np.any(zone_count == 3):
-            return
-
-        if np.all(zone_count == 2):
-            self.num_solutions += 1
-            return
-
-        if x == self.size:
-            return
-
-        v = self.valid_rows(dots, x)
-        if len(v) < 2:
-            return
-
-        for y1 in range(self.size):
-            for y2 in range(self.size):
-                if y1 > y2 + 1 and v[y1] and v[y2]:
-                    new_dots = dots.copy()
-                    new_dots[x, y1] = True
-                    new_dots[x, y2] = True
-
-                    new_zc = zone_count.copy()
-                    new_zc[self.zones[x, y1]] += 1
-                    new_zc[self.zones[x, y2]] += 1
-
-                    self.recurse_one_solution(new_dots, x + 1, new_zc)
-                    if self.num_solutions > 1:
-                        return
-
-    def zones_full(self, dots):
-        for n in range(self.size):
-            if np.count_nonzero(np.logical_and(self.zones == n, dots)) < 2:
-                return False
-        return True
-
-    def gen_min_zones(self):
-        self.zones = None
-
-        while self.zones is None:
-            self.min_zones_attempts = 0
-            self.gen_dots()
-            assigned = np.full((self.num_dots), False, dtype=np.bool)
-            self.zones = np.full((self.size, self.size), -1, dtype=np.int8)
-            self.zones = self.recurse_gen_min_zones(self.zones, assigned, 0)
+        self.min_zones = np.full((self.size, self.size), -1, dtype=np.int8)
+        self.full_zones = np.full((self.size, self.size), -1, dtype=np.int8)
 
     def gen_dots(self):
         dots = np.full((self.size, self.size), False, dtype=np.bool)
@@ -83,6 +31,42 @@ class Graph:
             for y in range(self.size):
                 if self.dots[x, y]:
                     self.dot_loc.append((x, y))
+
+    def gen_min_zones(self):
+        self.min_zones = None
+
+        while self.min_zones is None:
+            self.min_zones_attempts = 0
+            self.gen_dots()
+            assigned = np.full((self.num_dots), False, dtype=np.bool)
+            self.min_zones = np.full((self.size, self.size), -1, dtype=np.int8)
+            self.min_zones = self.recurse_gen_min_zones(
+                self.min_zones, assigned, 0)
+
+    def gen_full_zones(self):
+        self.full_zones = self.min_zones.copy()
+        q = deque()
+        for x in range(self.size):
+            for y in range(self.size):
+                if self.min_zones[x, y] == -1:
+                    q.append((x, y))
+
+        random.shuffle(q)
+
+        while len(q) > 0:
+            p = q.popleft()
+            adj = self.adjacent_zones(p)
+            if len(adj) > 0:
+                self.full_zones[p] = adj[0]
+            else:
+                q.append(p)
+
+    def adjacent_zones(self, p):
+        result = []
+        for p1 in self.adjacent(p):
+            if self.full_zones[p1] != -1:
+                result.append(self.full_zones[p1])
+        return result
 
     def recurse_gen_min_zones(self, zones, assigned, z):
         self.min_zones_attempts += 1
@@ -102,11 +86,11 @@ class Graph:
 
         for d1 in r1:
             for d2 in r2:
-                if d1 != d2 and not assigned[d1] and not assigned[d2]:
+                if d1 != d2 and not assigned[d1] and not assigned[d2] and self.distance(d1, d2) < self.max_dist():
                     result = zones.copy()
                     result = self.find_zone(result, d1, d2, z)
                     if result is not None:
-                        self.zones = result
+                        self.min_zones = result
                         new_assigned = assigned.copy()
                         new_assigned[d1] = True
                         new_assigned[d2] = True
@@ -115,6 +99,14 @@ class Graph:
                         if result is not None:
                             return result
         return None
+
+    def distance(self, d1, d2):
+        dot1 = self.dot_loc[d1]
+        dot2 = self.dot_loc[d2]
+        return abs(dot1[0] - dot2[0]) + abs(dot1[1] - dot2[1])
+
+    def max_dist(self):
+        return random.expovariate(1) * self.size
 
     def isolated_dot(self, zones, assigned):
         for d in range(self.num_dots):
@@ -152,6 +144,8 @@ class Graph:
             if x1 >= self.size or y1 >= self.size:
                 continue
             result.append(p1)
+
+        random.shuffle(result)
 
         return result
 
@@ -215,18 +209,46 @@ class Graph:
     def row_full(self, dots, y):
         return np.count_nonzero(dots[:, y]) > 1
 
-    def string(self, dots, zones):
+    def board_str(self):
         result = ""
         for y in range(self.size - 1, -1, -1):
             for x in range(self.size):
-                if zones[x, y] != -1:
-                    if dots[x, y]:
+                if self.min_zones[x, y] != -1:
+                    result += ' '
+                    result += str(self.min_zones[x, y])
+                    result += ' '
+                elif self.full_zones[x, y] != -1:
+                    result += ' '
+                    result += str(self.full_zones[x, y])
+                    result += ' '
+                else:
+                    result += '   '
+
+            result += '\n'
+
+        return result
+
+    def answer_str(self):
+        result = ""
+        for y in range(self.size - 1, -1, -1):
+            for x in range(self.size):
+                if self.min_zones[x, y] != -1:
+                    if self.dots[x, y]:
                         result += '['
-                        result += str(zones[x, y])
+                        result += str(self.min_zones[x, y])
                         result += ']'
                     else:
                         result += ' '
-                        result += str(zones[x, y])
+                        result += str(self.min_zones[x, y])
+                        result += ' '
+                elif self.full_zones[x, y] != -1:
+                    if self.dots[x, y]:
+                        result += '['
+                        result += str(self.full_zones[x, y])
+                        result += ']'
+                    else:
+                        result += ' '
+                        result += str(self.full_zones[x, y])
                         result += ' '
                 else:
                     result += '   '
@@ -235,15 +257,12 @@ class Graph:
 
         return result
 
-    def __str__(self):
-        return self.string(self.dots, self.zones)
 
-
-g = Graph(10)
-while True:
-    g.gen_dots()
-    g.gen_min_zones()
-    print(g)
-    if g.one_solution():
-        print('done')
-        break
+g = Graph(9)
+g.gen_dots()
+g.gen_min_zones()
+print(g.board_str())
+g.gen_full_zones()
+print(g.board_str())
+input()
+print(g.answer_str())
