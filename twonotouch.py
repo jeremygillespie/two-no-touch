@@ -1,7 +1,9 @@
 import numpy as np
+import random
 from collections import deque
 
-max_q = 1000
+
+max_min_zone_attempts = 50
 
 
 class Search_node:
@@ -19,24 +21,66 @@ class Graph:
         self.dots = np.full((self.size, self.size), False, dtype=np.bool)
         self.zones = np.full((self.size, self.size), -1, dtype=np.int8)
 
-        self.unassigned_zone = 0
+    def num_solutions(self):
+        dots = np.full((self.size, self.size), False, dtype=np.bool)
+        return self.recurse_solutions(dots, 0)
+
+    def recurse_solutions(self, dots, x):
+        if x == self.size:
+            if self.zones_full(dots):
+                return 1
+            else:
+                return 0
+
+        v = self.valid_rows(dots, x)
+        if len(v) < 2:
+            return 0
+
+        result = 0
+
+        for y1 in range(self.size):
+            for y2 in range(self.size):
+                if y1 > y2 + 1 and v[y1] and v[y2]:
+                    new_dots = dots.copy()
+                    new_dots[x, y1] = True
+                    new_dots[x, y2] = True
+
+                    result += self.recurse_solutions(new_dots, x + 1)
+
+        return result
+
+    def zones_full(self, dots):
+        for n in range(self.size):
+            if np.count_nonzero(np.logical_and(self.zones == n, dots)) < 2:
+                return False
+        return True
+
+    def gen_min_zones(self):
+        self.zones = None
+
+        while self.zones is None:
+            self.min_zones_attempts = 0
+            self.gen_dots()
+            assigned = np.full((self.num_dots), False, dtype=np.bool)
+            self.zones = np.full((self.size, self.size), -1, dtype=np.int8)
+            print(self)
+
+            self.zones = self.recurse_gen_min_zones(self.zones, assigned, 0)
 
     def gen_dots(self):
         dots = np.full((self.size, self.size), False, dtype=np.bool)
         self.dots = self.recurse_gen_dots(dots, 0)
-        self.dot_loc = []
 
+        self.dot_loc = []
         for x in range(self.size):
             for y in range(self.size):
                 if self.dots[x, y]:
                     self.dot_loc.append((x, y))
 
-    def gen_min_zones(self):
-        assigned = np.full((self.num_dots), False, dtype=np.bool)
-        zones = np.full((self.size, self.size), -1, dtype=np.int8)
-        self.zones = self.recurse_gen_min_zones(zones, assigned, 0)
-
     def recurse_gen_min_zones(self, zones, assigned, z):
+        self.min_zones_attempts += 1
+        if self.min_zones_attempts > max_min_zone_attempts:
+            return None
 
         if z == self.size:
             return zones
@@ -44,10 +88,10 @@ class Graph:
         if self.isolated_dot(zones, assigned):
             return None
 
-        r1 = np.arange(self.num_dots)
-        r2 = np.arange(self.num_dots)
-        np.random.shuffle(r1)
-        np.random.shuffle(r2)
+        r1 = list(range(self.num_dots))
+        r2 = list(range(self.num_dots))
+        random.shuffle(r1)
+        random.shuffle(r2)
 
         for d1 in r1:
             for d2 in r2:
@@ -55,6 +99,7 @@ class Graph:
                     result = zones.copy()
                     result = self.find_zone(result, d1, d2, z)
                     if result is not None:
+                        self.zones = result
                         new_assigned = assigned.copy()
                         new_assigned[d1] = True
                         new_assigned[d2] = True
@@ -109,7 +154,7 @@ class Graph:
 
         checked = np.full((self.size, self.size), False, dtype=np.bool)
 
-        while len(q) > 0 and len(q) < max_q:
+        while len(q) > 0:
             n = q.popleft()
             checked[n.p] = True
 
@@ -179,15 +224,6 @@ class Graph:
 
                 result += '  '
             result += '\n'
-
-        for z in range(self.size):
-            n = 0
-            for x in range(self.size):
-                for y in range(self.size):
-                    if self.dots[x, y] and self.zones[x, y] == z:
-                        n += 1
-            result += str(n) + ' '
-        result += '\n'
 
         return result
 
