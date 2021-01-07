@@ -20,9 +20,9 @@ class Graph:
 
         self.dots = np.full((self.size, self.size), False, dtype=np.bool)
         self.zones = np.full((self.size, self.size), -1, dtype=np.int8)
-        self.num_solutions = 0
 
     def one_solution(self):
+        self.num_solutions = 0
         dots = np.full((self.size, self.size), False, dtype=np.bool)
         zone_count = np.full((self.size), 0, dtype=np.int)
         self.recurse_one_solution(dots, 0, zone_count)
@@ -72,8 +72,6 @@ class Graph:
             self.gen_dots()
             assigned = np.full((self.num_dots), False, dtype=np.bool)
             self.zones = np.full((self.size, self.size), -1, dtype=np.int8)
-            print(self)
-
             self.zones = self.recurse_gen_min_zones(self.zones, assigned, 0)
 
     def gen_dots(self):
@@ -217,51 +215,35 @@ class Graph:
     def row_full(self, dots, y):
         return np.count_nonzero(dots[:, y]) > 1
 
-    def __str__(self):
+    def string(self, dots, zones):
         result = ""
         for y in range(self.size - 1, -1, -1):
             for x in range(self.size):
-                if self.dots[x, y]:
-                    result += 'X'
+                if zones[x, y] != -1:
+                    if dots[x, y]:
+                        result += '['
+                        result += str(zones[x, y])
+                        result += ']'
+                    else:
+                        result += ' '
+                        result += str(zones[x, y])
+                        result += ' '
                 else:
-                    result += ' '
+                    result += '   '
 
-                if self.zones[x, y] != -1:
-                    result += '[' + str(self.zones[x, y]).rjust(2, ' ') + ']'
-                else:
-                    result += '[  ]'
-
-                result += '  '
             result += '\n'
 
         return result
 
+    def __str__(self):
+        return self.string(self.dots, self.zones)
 
-def solve(zones, x, graph):
-    size = 8
 
-    if x == size:
-        zone_count = np.full((size), 0, dtype=np.int8)
-        for xpos in range(size):
-            for ypos in range(size):
-                if graph[xpos, ypos]:
-                    zone_count[zones[xpos, ypos]] += 1
-        if np.all(zone_count == 2):
-            return 1
-        else:
-            return 0
-
-    result = 0
-    rows = range(size)
-
-    for a in rows:
-        for b in rows:
-            if a > b and a - b > 1:
-
-                graph_new = np.copy(graph)
-                graph_new[x, a] = True
-                graph_new[x, b] = True
-
-                result += solve(zones, x+1, graph_new)
-
-    return result
+g = Graph(10)
+while True:
+    g.gen_dots()
+    g.gen_min_zones()
+    print(g)
+    if g.one_solution():
+        print('done')
+        break
