@@ -1,197 +1,200 @@
-import random
 import numpy as np
+from collections import deque
 
-size = 8
-
-
-def output(graph, zones):
-    for y in range(size):
-        for x in range(size):
-            if graph[x, y]:
-                print(zones[x, y], '*', end='\t')
-            else:
-                print(zones[x, y], end='\t')
-        print()
-    print()
+max_q = 1000
 
 
-def count_row(y, graph):
-    result = 0
-    for x in range(size):
-        if graph[x, y]:
-            result += 1
-    return result
+class Search_node:
+    def __init__(self, zones, p, z):
+        self.p = p
+        self.zones = zones.copy()
+        self.zones[p] = z
 
 
-def valid_rows(x, graph):
-    if x == 0:
-        return list(range(size))
+class Graph:
+    def __init__(self, size):
+        self.size = size
+        self.num_dots = self.size * 2
 
-    result = []
+        self.dots = np.full((self.size, self.size), False, dtype=np.bool)
+        self.zones = np.full((self.size, self.size), -1, dtype=np.int8)
 
-    for y in range(size):
-        if graph[x - 1, y]:
-            continue
+        self.unassigned_zone = 0
 
-        if y > 0 and graph[x - 1, y - 1]:
-            continue
+    def gen_dots(self):
+        dots = np.full((self.size, self.size), False, dtype=np.bool)
+        self.dots = self.recurse_gen_dots(dots, 0)
+        self.dot_loc = []
 
-        if y < size - 1 and graph[x - 1, y + 1]:
-            continue
+        for x in range(self.size):
+            for y in range(self.size):
+                if self.dots[x, y]:
+                    self.dot_loc.append((x, y))
 
-        if count_row(y, graph) >= 2:
-            continue
+    def gen_min_zones(self):
+        assigned = np.full((self.num_dots), False, dtype=np.bool)
+        zones = np.full((self.size, self.size), -1, dtype=np.int8)
+        self.zones = self.recurse_gen_min_zones(zones, assigned, 0)
 
-        result.append(y)
+    def recurse_gen_min_zones(self, zones, assigned, z):
 
-    return result
+        if z == self.size:
+            return zones
 
+        if self.isolated_dot(zones, assigned):
+            return None
 
-def fill(x, graph):
-    if x == size:
-        return graph
+        r1 = np.arange(self.num_dots)
+        r2 = np.arange(self.num_dots)
+        np.random.shuffle(r1)
+        np.random.shuffle(r2)
 
-    rows = valid_rows(x, graph)
-    rows_a = rows
-    rows_b = rows[:]
+        for d1 in r1:
+            for d2 in r2:
+                if d1 != d2 and not assigned[d1] and not assigned[d2]:
+                    result = zones.copy()
+                    result = self.find_zone(result, d1, d2, z)
+                    if result is not None:
+                        new_assigned = assigned.copy()
+                        new_assigned[d1] = True
+                        new_assigned[d2] = True
+                        result = self.recurse_gen_min_zones(
+                            result, new_assigned, z + 1)
+                        if result is not None:
+                            return result
+        return None
 
-    random.shuffle(rows_a)
-    random.shuffle(rows_b)
+    def isolated_dot(self, zones, assigned):
+        for d in np.arange(self.num_dots):
+            if not assigned[d]:
+                q = deque()
+                q.append(self.dot_loc[d])
 
-    for a in rows_a:
-        for b in rows_b:
-            if abs(a - b) > 1:
+                checked = np.full((self.size, self.size), False, dtype=np.bool)
 
-                graph_new = np.copy(graph)
-                graph_new[x, a] = True
-                graph_new[x, b] = True
+                while True:
+                    if len(q) == 0:
+                        return True
 
-                result = fill(x + 1, graph_new)
-                if len(result) > 0:
-                    return result
+                    p = q.popleft()
+                    if self.dots[p]:
+                        break
+                    checked[p] = True
 
-    return np.array([])
+                    for adj in self.adjacent(p):
+                        if not checked[adj] and zones[adj] == -1:
+                            q.append(adj)
 
+        return False
 
-def adjacent_points(p):
-    result = []
-    x = p[0]
-    y = p[1]
-    for p1 in [(x, y+1), (x+1, y), (x, y-1), (x-1, y)]:
-        if p1[0] < 0 or p1[1] < 0:
-            continue
-        if p1[0] >= size or p1[1] >= size:
-            continue
-        result.append(p1)
-    return result
+    def adjacent(self, p):
+        x = p[0]
+        y = p[1]
 
+        result = []
+        for p1 in [(x, y + 1), (x, y - 1), (x - 1, y), (x + 1, y)]:
+            x1 = p1[0]
+            y1 = p1[1]
+            if x1 < 0 or y1 < 0:
+                continue
+            if x1 >= self.size or y1 >= self.size:
+                continue
+            result.append(p1)
 
-def adjacent_zones(p, zones):
-    result = []
-    for p1 in adjacent_points(p):
-        z = zones[p1]
-        if z != -1:
-            result.append(z)
-    return result
+        return result
 
+    def find_zone(self, zones, d1, d2, z):
+        q = deque()
+        q.append(Search_node(zones, self.dot_loc[d1], z))
 
-def target_zones(count, accessible):
-    valid = count < 2
-    if not valid.any():
-        return np.array([])
-    valid = accessible == min(accessible[valid])
-    return np.array(range(size))[valid]
+        checked = np.full((self.size, self.size), False, dtype=np.bool)
 
+        while len(q) > 0 and len(q) < max_q:
+            n = q.popleft()
+            checked[n.p] = True
 
-def update_accessible(graph, zones, accessible, center):
-    result = np.full((size), 0, dtype=np.int32)
-    for z in range(size):
-        can_visit = np.full((size, size), True, dtype=np.bool)
-        q = []
-        q.append(center[z])
-        found = 0
+            for adj in self.adjacent(n.p):
+                if adj == self.dot_loc[d2]:
+                    return Search_node(n.zones, adj, z).zones
+                elif not checked[adj] and not self.dots[adj] and n.zones[adj] == -1:
+                    q.append(Search_node(n.zones, adj, z))
 
-        while len(q) > 0:
-            p = q.pop()
-            can_visit[p] = False
-            if graph[p]:
-                found += 1
+        return None
 
-            for p1 in adjacent_points(p):
-                if can_visit[p1] and (zones[p1] == -1 or zones[p1] == z):
-                    q.append(p1)
+    def recurse_gen_dots(self, dots, x):
+        if x == self.size:
+            return dots
 
-        result[z] = found
-    return result
+        v = self.valid_rows(dots, x)
 
+        r1 = np.arange(self.size)
+        r2 = np.arange(self.size)
+        np.random.shuffle(r1)
+        np.random.shuffle(r2)
 
-def fill_zones(graph):
-    result = np.full((size, size), -1, dtype=np.int8)
-    zone_center = []
-    zone_count = np.full((size), 0, dtype=np.int8)
-    zone_accessible = np.full((size), 0, dtype=np.int32)
+        for y1 in r1:
+            for y2 in r2:
+                if y1 > y2 + 1 and v[y1] and v[y2]:
+                    result = dots.copy()
+                    result[x, y1] = True
+                    result[x, y2] = True
 
-    points_empty = []
-    for x in range(size):
-        for y in range(size):
-            points_empty.append((x, y))
-    random.shuffle(points_empty)
+                    result = self.recurse_gen_dots(result, x + 1)
+                    if result is not None:
+                        return result
+        return None
 
-    empty_zone = 0
-    while empty_zone < size:
-        p = points_empty.pop(0)
-
-        if graph[p] == True and result[p] == -1:
-            result[p] = empty_zone
-            zone_count[empty_zone] += 1
-            zone_center.append(p)
-            empty_zone += 1
+    def valid_rows(self, dots, x):
+        result = np.full((self.size), True, dtype=np.bool)
+        if x == 0:
+            return result
         else:
-            points_empty.append(p)
+            for y in range(self.size):
+                if dots[x - 1, y]:
+                    result[y] = False
+                elif y > 0 and dots[x - 1, y - 1]:
+                    result[y] = False
+                elif y < self.size - 1 and dots[x - 1, y + 1]:
+                    result[y] = False
+                elif self.row_full(dots, y):
+                    result[y] = False
+            return result
 
-    target_zone = random.choice(target_zones(zone_count, zone_accessible))
+    def row_full(self, dots, y):
+        return np.count_nonzero(dots[:, y]) > 1
 
-    loop_count = 0
-    while len(points_empty) > 0:
-        p = points_empty.pop(0)
+    def __str__(self):
+        result = ""
+        for y in range(self.size - 1, -1, -1):
+            for x in range(self.size):
+                if self.dots[x, y]:
+                    result += 'X'
+                else:
+                    result += ' '
 
-        if target_zone in adjacent_zones(p, result):
-            result[p] = target_zone
-            acc_new = update_accessible(
-                graph, result, zone_accessible, zone_center)
-            if min(acc_new) >= 2:
-                if graph[p]:
-                    zone_count[target_zone] += 1
-                tz = target_zones(zone_count, zone_accessible)
-                if len(tz) == 0:
-                    break
-                target_zone = random.choice(tz)
-                zone_accessible = acc_new
-                loop_count = 0
-            else:
-                result[p] = -1
-                points_empty.append(p)
-                loop_count += 1
-        else:
-            points_empty.append(p)
-            loop_count += 1
+                if self.zones[x, y] != -1:
+                    result += '[' + str(self.zones[x, y]).rjust(2, ' ') + ']'
+                else:
+                    result += '[  ]'
 
-        if loop_count > len(points_empty):
-            return np.array([])
+                result += '  '
+            result += '\n'
 
-    while len(points_empty) > 0:
-        p = points_empty.pop(0)
+        for z in range(self.size):
+            n = 0
+            for x in range(self.size):
+                for y in range(self.size):
+                    if self.dots[x, y] and self.zones[x, y] == z:
+                        n += 1
+            result += str(n) + ' '
+        result += '\n'
 
-        adj = adjacent_zones(p, result)
-        if len(adj) > 0:
-            result[p] = random.choice(adj)
-        else:
-            points_empty.append(p)
-
-    return result
+        return result
 
 
 def solve(zones, x, graph):
+    size = 8
+
     if x == size:
         zone_count = np.full((size), 0, dtype=np.int8)
         for xpos in range(size):
@@ -199,13 +202,12 @@ def solve(zones, x, graph):
                 if graph[xpos, ypos]:
                     zone_count[zones[xpos, ypos]] += 1
         if np.all(zone_count == 2):
-            output(graph, zones)
             return 1
         else:
             return 0
 
-    rows = valid_rows(x, graph)
     result = 0
+    rows = range(size)
 
     for a in rows:
         for b in rows:
@@ -218,16 +220,3 @@ def solve(zones, x, graph):
                 result += solve(zones, x+1, graph_new)
 
     return result
-
-
-zones = np.array([])
-while len(zones) == 0:
-    graph = np.full((size, size), 0, dtype=np.bool)
-    graph = fill(0, graph)
-    for i in range(100):
-        zones = fill_zones(graph)
-        if len(zones) != 0:
-            break
-
-output(graph, zones)
-print(solve(zones, 0, np.full((size, size), 0, dtype=np.bool)))
